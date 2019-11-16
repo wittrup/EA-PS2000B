@@ -116,3 +116,4 @@ Notes.txt
 *.csv
 *.identcache
 EAPS2000B.identcache
+.idea/
