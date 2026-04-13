@@ -117,3 +117,4 @@ Notes.txt
 *.identcache
 EAPS2000B.identcache
 .idea/
+/.claude

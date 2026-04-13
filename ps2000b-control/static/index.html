@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PS2000B Control</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>PS2000B Control</h1>
+    <div id="conn-status" class="status-pill disconnected">Connecting…</div>
+  </header>
+
+  <main>
+    <!-- Channel 1 -->
+    <section class="channel-card" id="card-ch1">
+      <div class="card-header">
+        <span class="ch-label">Channel 1</span>
+        <button class="output-toggle" data-ch="1" title="Toggle output">OFF</button>
+      </div>
+
+      <div class="readings">
+        <div class="reading voltage">
+          <span class="value" id="ch1-v">—</span>
+          <span class="unit">V</span>
+          <span class="label">Voltage</span>
+        </div>
+        <div class="reading current">
+          <span class="value" id="ch1-a">—</span>
+          <span class="unit">A</span>
+          <span class="label">Current</span>
+        </div>
+      </div>
+
+      <canvas id="chart-ch1" height="100"></canvas>
+
+      <div class="setpoints">
+        <label>
+          Setpoint V
+          <input type="range" id="ch1-v-set" min="0" max="42" step="0.1" value="0" data-ch="1" data-type="voltage" />
+          <input type="number" id="ch1-v-out" min="0" max="42" step="0.1" value="0" data-ch="1" data-type="voltage" class="setpoint-num" title="Type a value and press Enter" />
+        </label>
+        <label>
+          Setpoint A
+          <input type="range" id="ch1-a-set" min="0" max="6" step="0.01" value="0" data-ch="1" data-type="current" />
+          <input type="number" id="ch1-a-out" min="0" max="6" step="0.01" value="0" data-ch="1" data-type="current" class="setpoint-num" title="Type a value and press Enter" />
+        </label>
+      </div>
+    </section>
+
+    <!-- Channel 2 -->
+    <section class="channel-card" id="card-ch2">
+      <div class="card-header">
+        <span class="ch-label">Channel 2</span>
+        <button class="output-toggle" data-ch="2" title="Toggle output">OFF</button>
+      </div>
+
+      <div class="readings">
+        <div class="reading voltage">
+          <span class="value" id="ch2-v">—</span>
+          <span class="unit">V</span>
+          <span class="label">Voltage</span>
+        </div>
+        <div class="reading current">
+          <span class="value" id="ch2-a">—</span>
+          <span class="unit">A</span>
+          <span class="label">Current</span>
+        </div>
+      </div>
+
+      <canvas id="chart-ch2" height="100"></canvas>
+
+      <div class="setpoints">
+        <label>
+          Setpoint V
+          <input type="range" id="ch2-v-set" min="0" max="42" step="0.1" value="0" data-ch="2" data-type="voltage" />
+          <input type="number" id="ch2-v-out" min="0" max="42" step="0.1" value="0" data-ch="2" data-type="voltage" class="setpoint-num" title="Type a value and press Enter" />
+        </label>
+        <label>
+          Setpoint A
+          <input type="range" id="ch2-a-set" min="0" max="6" step="0.01" value="0" data-ch="2" data-type="current" />
+          <input type="number" id="ch2-a-out" min="0" max="6" step="0.01" value="0" data-ch="2" data-type="current" class="setpoint-num" title="Type a value and press Enter" />
+        </label>
+      </div>
+    </section>
+  </main>
+
+  <!-- Logging bar -->
+  <footer class="log-bar">
+    <div class="log-bar-left">
+      <button id="log-toggle" class="log-btn log-start">&#9654; Start Logging</button>
+      <span class="log-meta">
+        <span id="log-filename" class="log-filename"></span>
+        <span id="log-samples" class="log-samples"></span>
+      </span>
+    </div>
+    <div class="log-bar-right">
+      <label class="log-label" for="log-interval-input">Interval&nbsp;(s)</label>
+      <input id="log-interval-input" class="log-interval" type="number" min="0.1" max="60" step="0.1" value="1.0" />
+      <a id="log-download" class="log-btn log-dl" href="/api/log/download" download style="display:none">&#8659; Download CSV</a>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
