@@ -6,6 +6,9 @@ Runs on Windows and Linux (Raspberry Pi).
 ## Install
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate   # Linux/macOS
+# .venv\Scripts\activate    # Windows
 pip install -r requirements.txt
 ```
 
@@ -41,7 +44,7 @@ python cli.py serve --port /dev/ttyUSB0 --log-file /data/ps2000b.csv --log-inter
 
 ## Web dashboard
 
-After `python cli.py serve`, open **http://localhost:8080** in a browser.
+After `python cli.py serve`, open **http://localhost:8181** in a browser.
 
 ### Live monitoring
 - Voltage + current readings for both channels, updated every 200 ms via WebSocket
@@ -76,18 +79,172 @@ Pass `--log-file` to `serve` to begin logging immediately when the server starts
 python cli.py serve --port /dev/ttyUSB0 --log-file /data/ps2000b.csv --log-interval 1.0
 ```
 
-### Raspberry Pi / Nginx
+### Raspberry Pi deployment
+
+The following steps deploy the full system (web dashboard + MCP server) to a
+Raspberry Pi and run it as a systemd service:
+
+```bash
+# 1. Copy the project to the Pi (from your dev machine)
+scp -r ps2000b-control  pi-hostname:~/ps2000b-control
+
+# 2. SSH in and create a virtualenv
+ssh pi-hostname
+cd ~/ps2000b-control
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Verify the USB serial device is present
+ls /dev/ttyACM0   # or /dev/ttyUSB0
+
+# 4. (If needed) Grant serial port access
+sudo usermod -aG dialout $USER
+# Log out and back in for the group change to take effect
+
+# 5. Install and start the systemd service
+sudo service/install.sh
+```
+
+The service runs the web dashboard, REST API, WebSocket, and MCP SSE transport
+on port 8181. Everything starts automatically on boot.
+
+#### Managing the service
+
+```bash
+sudo systemctl status  ps2000b-control
+sudo systemctl stop    ps2000b-control
+sudo systemctl restart ps2000b-control
+journalctl -u ps2000b-control -f
+
+# Remove the service entirely
+sudo service/uninstall.sh
+```
+
+The unit file (`service/ps2000b-control.service`) defaults to
+`/dev/ttyACM0` on port 8181, user `wittr`. Edit it before installing if
+your setup differs.
+
+#### Nginx reverse proxy (optional)
 
 Put Nginx in front to expose the dashboard on port 80:
 
 ```nginx
 location / {
-    proxy_pass         http://127.0.0.1:8080;
+    proxy_pass         http://127.0.0.1:8181;
     proxy_http_version 1.1;
     proxy_set_header   Upgrade $http_upgrade;
     proxy_set_header   Connection "upgrade";
 }
 ```
+
+## MCP Server
+
+The MCP (Model Context Protocol) server is integrated into the FastAPI app.
+When the `serve` command runs, an SSE endpoint is automatically available at `/sse`,
+allowing any MCP client to control the power supply in natural language.
+
+No separate process is needed — the web dashboard and MCP server share the same
+port and serial connection.
+
+### Connecting an MCP client
+
+Any MCP client that supports SSE transport can connect directly:
+
+```json
+{
+  "mcpServers": {
+    "ps2000b": {
+      "url": "http://<hostname>:8181/sse"
+    }
+  }
+}
+```
+
+For example, with the Pi deployed as described above:
+
+```json
+{
+  "mcpServers": {
+    "ps2000b": {
+      "url": "http://wittrpi:8181/sse"
+    }
+  }
+}
+```
+
+### Claude Desktop (stdio transport)
+
+Claude Desktop uses stdio, so it launches `mcp_server.py` as a subprocess.
+The MCP server wraps the REST API — no direct serial port access.
+
+Add to `%APPDATA%\Claude\claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ps2000b": {
+      "command": "python",
+      "args": [
+        "C:\\path\\to\\ps2000b-control\\mcp_server.py",
+        "--server-url", "http://wittrpi:8181"
+      ]
+    }
+  }
+}
+```
+
+If using a virtualenv replace `"python"` with the full `.venv\Scripts\python.exe` path.
+Restart Claude Desktop after editing the config.
+
+### Testing with the MCP Inspector
+
+```bash
+npx @modelcontextprotocol/inspector
+```
+
+In the inspector UI, select **SSE** transport and enter `http://<hostname>:8181/sse`
+as the URL, then click Connect.
+
+### Available tools (13)
+
+| Tool | Description |
+|------|-------------|
+| `get_status` | Actual measured V/A/on for both channels |
+| `get_setpoints` | Programmed voltage + current targets |
+| `list_ports` | Serial ports on the server host |
+| `set_channel` | Set V + A for a channel atomically |
+| `set_voltage` | Set voltage only |
+| `set_current` | Set current limit only |
+| `enable_channel` | Turn output on or off |
+| `get_log_status` | Check logger state (running / samples / filename) |
+| `start_logging` | Start CSV logging (interval, optional filename) |
+| `stop_logging` | Stop logging and flush file |
+| `get_log_download_url` | Get URL to download the CSV (not the data itself) |
+| `configure_and_enable_channel` | Set V/A and enable in one step |
+| `safe_shutdown` | Disable both channels immediately |
+
+### Resources & prompt
+
+- **`psu://status`** — live readings readable from Claude's context
+- **`psu://setpoints`** — current programmed setpoints
+- **`/ps2000b_safety_briefing`** — slash command to prime Claude with hardware limits and workflow rules at the start of a session
+
+### Example conversations
+
+> *"What is channel 1 outputting right now?"*
+> → Claude calls `get_status`
+
+> *"Configure channel 1 to 12 V / 2 A and enable it"*
+> → Claude calls `configure_and_enable_channel(1, 12.0, 2.0)`
+
+> *"Start logging every 500 ms"*
+> → Claude calls `start_logging(interval=0.5)`
+
+> *"Emergency stop"*
+> → Claude calls `safe_shutdown`
+
+---
 
 ## REST API
 
@@ -107,6 +264,7 @@ The server exposes a full REST API (see `/docs` for the interactive Swagger UI):
 | `POST` | `/api/log/stop` | Stop logging |
 | `GET` | `/api/log/download` | Download current CSV log file |
 | `WS` | `/ws` | Live stream of readings at 200 ms interval |
+| `GET` | `/sse` | MCP SSE transport endpoint |
 
 ## Project structure
 
@@ -126,7 +284,13 @@ static/
   app.js            Dashboard logic (WebSocket, charts, controls, logging UI)
   style.css         Dark theme styles
 cli.py              Click CLI entry point
+mcp_server.py       MCP tool definitions (mounted into FastAPI + stdio entry point)
 requirements.txt
+inspector-config.json  MCP inspector config for testing
+service/
+  install.sh        Install systemd service (run with sudo)
+  uninstall.sh      Remove systemd service (run with sudo)
+  ps2000b-control.service  systemd unit file
 ```
 
 ## Protocol notes

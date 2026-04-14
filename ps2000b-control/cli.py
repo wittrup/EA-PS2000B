@@ -227,6 +227,7 @@ def serve(port, host, http_port, reload, log_file, log_interval):
 
     import os
     os.environ["PS2000B_PORT"] = port
+    os.environ["PS2000B_SERVER_URL"] = f"http://127.0.0.1:{http_port}"
     if log_file:
         os.environ["PS2000B_LOG_FILE"] = log_file
         os.environ["PS2000B_LOG_INTERVAL"] = str(log_interval)

@@ -69,3 +69,10 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.get("/", include_in_schema=False)
 async def dashboard():
     return FileResponse(str(STATIC_DIR / "index.html"))
+
+# Mount MCP SSE transport so the server is also an MCP endpoint at /sse
+try:
+    from mcp_server import mcp as _mcp_instance
+    app.mount("/", _mcp_instance.sse_app())
+except ImportError:
+    pass  # mcp / httpx not installed — dashboard still works without MCP

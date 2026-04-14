@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "ps2000b": {
+      "url": "http://wittrpi:8181/sse"
+    }
+  }
+}
