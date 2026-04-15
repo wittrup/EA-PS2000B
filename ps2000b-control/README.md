@@ -301,4 +301,4 @@ service/
 - Write commands: device replies with a 6-byte ACK; non-zero byte 4 indicates an error
 - Remote mode (`OBJ 0x36`, mask `0x10`) must be enabled before any setpoint or control write
 - Scaling: `raw = round(value / nominal * 25600)` where nominal voltage = 42 V, nominal current = 6 A
-- All write methods enable remote mode automatically if the channel is still in local mode
+- All write methods use *transient* remote mode: they enter remote, send the command, then immediately return to local mode so the front-panel controls stay usable

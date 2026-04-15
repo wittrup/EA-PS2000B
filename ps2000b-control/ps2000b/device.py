@@ -1,6 +1,10 @@
 """
 High-level PS2000B device interface.
 
+All write methods use *transient* remote mode: they briefly enter remote
+mode for the duration of the serial transaction and return to local mode
+afterward, so the front-panel controls remain usable between web commands.
+
 Usage:
     with PS2000B("COM6") as psu:
         ch1 = psu.get_status(0)
@@ -175,67 +179,62 @@ class PS2000B:
     # ------------------------------------------------------------------
 
     def set_voltage(self, channel: int, voltage: float) -> None:
-        """Set the voltage setpoint. Enables remote mode first if needed."""
+        """Set the voltage setpoint.
+
+        Enters remote mode for the duration of the write, then returns
+        to local mode so the front panel stays usable.
+        """
         self._ensure_open()
         with self._lock:
-            self._ser.reset_input_buffer()
-            self._ser.write(proto.build_query(channel))
-            raw = self._ser.read(self.RESPONSE_LEN)
-            if len(raw) == self.RESPONSE_LEN:
-                remote = bool(proto.parse_response(raw).get("remote", False))
-            else:
-                remote = False
-            if not remote:
-                self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
-            self._send(proto.build_set_voltage(channel, voltage))
+            self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
+            try:
+                self._send(proto.build_set_voltage(channel, voltage))
+            finally:
+                self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_OFF))
 
     def set_current(self, channel: int, current: float) -> None:
-        """Set the current setpoint. Enables remote mode first if needed."""
+        """Set the current setpoint.
+
+        Enters remote mode for the duration of the write, then returns
+        to local mode so the front panel stays usable.
+        """
         self._ensure_open()
         with self._lock:
-            self._ser.reset_input_buffer()
-            self._ser.write(proto.build_query(channel))
-            raw = self._ser.read(self.RESPONSE_LEN)
-            if len(raw) == self.RESPONSE_LEN:
-                remote = bool(proto.parse_response(raw).get("remote", False))
-            else:
-                remote = False
-            if not remote:
-                self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
-            self._send(proto.build_set_current(channel, current))
+            self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
+            try:
+                self._send(proto.build_set_current(channel, current))
+            finally:
+                self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_OFF))
 
     def set_output(self, channel: int, voltage: float, current: float) -> None:
-        """Set both voltage and current setpoints in one locked transaction."""
+        """Set both voltage and current setpoints in one locked transaction.
+
+        Enters remote mode for the duration of the write, then returns
+        to local mode so the front panel stays usable.
+        """
         self._ensure_open()
         with self._lock:
-            self._ser.reset_input_buffer()
-            self._ser.write(proto.build_query(channel))
-            raw = self._ser.read(self.RESPONSE_LEN)
-            if len(raw) == self.RESPONSE_LEN:
-                remote = bool(proto.parse_response(raw).get("remote", False))
-            else:
-                remote = False
-            if not remote:
-                self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
-            self._send(proto.build_set_voltage(channel, voltage))
-            self._send(proto.build_set_current(channel, current))
+            self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
+            try:
+                self._send(proto.build_set_voltage(channel, voltage))
+                self._send(proto.build_set_current(channel, current))
+            finally:
+                self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_OFF))
 
     def enable_output(self, channel: int, enabled: bool) -> None:
-        """Switch the output on or off. Enables remote mode first if needed, atomically."""
+        """Switch the output on or off.
+
+        Enters remote mode for the duration of the write, then returns
+        to local mode so the front panel stays usable.
+        """
         self._ensure_open()
         with self._lock:
-            # Read-check-write under the same lock to avoid races with WS polling
-            self._ser.reset_input_buffer()
-            self._ser.write(proto.build_query(channel))
-            raw = self._ser.read(self.RESPONSE_LEN)
-            if len(raw) == self.RESPONSE_LEN:
-                remote = bool(proto.parse_response(raw).get("remote", False))
-            else:
-                remote = False
-            if not remote:
-                self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
-            code = proto.CTRL_OUTPUT_ON if enabled else proto.CTRL_OUTPUT_OFF
-            self._send(proto.build_control_command(channel, code))
+            self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
+            try:
+                code = proto.CTRL_OUTPUT_ON if enabled else proto.CTRL_OUTPUT_OFF
+                self._send(proto.build_control_command(channel, code))
+            finally:
+                self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_OFF))
 
     # ------------------------------------------------------------------
     # Utility
