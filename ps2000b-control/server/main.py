@@ -35,11 +35,11 @@ async def lifespan(app: FastAPI):
     if not port:
         print("WARNING: No PS2000B port found. Dashboard will load but show no data.")
     else:
+        device = PS2000B(port)
+        set_device(device)
+        device_logger.set_device(device)
         try:
-            device = PS2000B(port)
             device.open()
-            set_device(device)
-            device_logger.set_device(device)
             print(f"Connected to PS2000B on {port}")
 
             # Auto-start logging if a log file was specified
@@ -50,11 +50,14 @@ async def lifespan(app: FastAPI):
                 print(f"Auto-logging to {log_file} every {log_interval}s")
         except serial.SerialException as e:
             print(f"WARNING: Could not open {port}: {e}")
-            print("Dashboard will load. Fix the port conflict and restart.")
+            print("Dashboard will load. The device will reconnect automatically.")
     yield
     if device:
         device_logger.stop()
-        device.close()
+        try:
+            device.close()
+        except Exception:
+            pass
         print("Serial connection closed.")
 
 
@@ -68,7 +71,10 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/", include_in_schema=False)
 async def dashboard():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    return FileResponse(
+        str(STATIC_DIR / "index.html"),
+        headers={"Cache-Control": "no-cache"},
+    )
 
 # Mount MCP SSE transport so the server is also an MCP endpoint at /sse
 try:

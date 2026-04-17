@@ -35,8 +35,14 @@ All write paths flow through `device.py`. The MCP server wraps the REST API (no 
 - Scaling: `raw = round(value / nominal * 25600)`
 - OBJ 71 = status, OBJ 72 = setpoints, OBJ 50 = set voltage, OBJ 51 = set current, OBJ 54 = control
 
-## Key Design Decision: Transient Remote Mode
-Write methods use **transient** remote mode: `REMOTE_ON` → write → `REMOTE_OFF` (in `finally`). This allows simultaneous front-panel and web control. The device is in remote mode only for the duration of each serial transaction.
+## Key Design Decisions
+**Transient remote mode:** Write methods bracket each serial transaction with `REMOTE_ON` → write → `REMOTE_OFF` (in `finally`), keeping the front panel usable between web commands.
+
+**Auto-reconnect:** When the device is powered off, the USB serial node disappears and I/O raises `OSError(5)`. The WS polling loop in `ws.py` detects errors, calls `device.reconnect()`, and retries every 5 s. `reconnect()` flushes the buffer and waits 0.5 s for the device to stabilize after power-on. `main.py` registers the device object before `open()` so the reconnect loop works even if the device is offline at startup. The dashboard shows an amber "Device offline" pill during reconnection and auto-recovers to green "Connected" once data flows again.
+
+**USB identity:** VID `0x232E` (EA Elektro-Automatik), native CDC-ACM driver (`/dev/ttyACM0`). Stable symlink: `/dev/serial/by-id/usb-EA_Elektro-Automatik_PS_2342-06B_*`.
+
+**Static asset caching:** `index.html` uses `?v=N` cache-busting on `app.js` and `style.css` links. Bump the version when changing frontend files.
 
 ## Deployment
 - **Pi hostname:** `wittrpi`

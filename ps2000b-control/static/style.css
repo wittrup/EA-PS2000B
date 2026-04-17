@@ -49,9 +49,10 @@ header h1 {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.status-pill.connected    { background: #14532d; color: var(--on); }
-.status-pill.disconnected { background: #450a0a; color: var(--off); }
-.status-pill.connecting   { background: #1c1917; color: var(--muted); }
+.status-pill.connected      { background: #14532d; color: var(--on); }
+.status-pill.disconnected   { background: #450a0a; color: var(--off); }
+.status-pill.device-offline  { background: #422006; color: var(--volt); }
+.status-pill.connecting      { background: #1c1917; color: var(--muted); }
 
 /* ── Main grid ────────────────────────────────────────────────────────────── */
 main {

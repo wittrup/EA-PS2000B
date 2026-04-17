@@ -8,10 +8,11 @@ const CHART_AMP     = "#3b82f6";
 const CHART_GRID    = "#2a3045";
 const CHART_TICK    = "#64748b";
 
-// ── State ────────────────────────────────────────────────────────────────────
+// ── State ────────────────────────────────────────────────────────────────
 const state = {
   ch1: { output_on: false, vSet: 0, aSet: 0 },
   ch2: { output_on: false, vSet: 0, aSet: 0 },
+  deviceOffline: false,
 };
 
 // ── Chart factory ─────────────────────────────────────────────────────────────
@@ -129,9 +130,22 @@ function connect() {
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
     if (msg.error) {
-      setConnStatus("disconnected", msg.error);
+      if (msg.device_offline) {
+        setConnStatus("device-offline", "Device offline \u2014 reconnecting\u2026");
+      } else {
+        setConnStatus("disconnected", msg.error);
+      }
+      state.deviceOffline = true;
       return;
     }
+
+    // Device just came back online — reload setpoints (device may have reset)
+    if (state.deviceOffline) {
+      state.deviceOffline = false;
+      loadSetpoints();
+    }
+
+    setConnStatus("connected", `Connected \u00b7 ${location.host}`);
 
     const { ch1, ch2 } = msg;
 

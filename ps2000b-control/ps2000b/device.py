@@ -240,8 +240,29 @@ class PS2000B:
     # Utility
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def is_io_error(exc: BaseException) -> bool:
+        """Return True if *exc* indicates a broken serial link (device
+        powered off, USB unplugged, etc.) rather than a protocol-level error."""
+        return isinstance(exc, (OSError, serial.SerialException))
+
     def reconnect(self) -> None:
-        """Close and reopen the serial connection."""
-        self.close()
-        time.sleep(0.2)
-        self.open()
+        """Close the stale connection and reopen.
+
+        Swallows errors during close (the old fd may already be dead).
+        Raises on open failure so the caller can decide when to retry.
+        After a successful open the input buffer is flushed and a short
+        stabilization delay allows the device to finish initializing.
+        """
+        try:
+            self.close()
+        except Exception:
+            # Stale fd — force-clear so open() creates a fresh one
+            self._ser = None
+        time.sleep(0.3)
+        self.open()   # raises serial.SerialException if port is gone
+        # Device may still be initializing after power-on — flush
+        # any startup garbage and give it time to become ready.
+        self._ser.reset_input_buffer()
+        time.sleep(0.5)
+        self._ser.reset_input_buffer()

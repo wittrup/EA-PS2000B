@@ -50,6 +50,9 @@ After `python cli.py serve`, open **http://localhost:8181** in a browser.
 - Voltage + current readings for both channels, updated every 200 ms via WebSocket
 - 24-second rolling history chart per channel
 - Connection status pill (auto-reconnects on disconnect)
+- **Auto-reconnect:** If the power supply is powered off or USB is unplugged, the
+  dashboard shows an amber "Device offline — reconnecting…" pill and automatically
+  recovers when the device comes back (no server restart needed)
 
 ### Control
 - Voltage and current setpoint sliders — drag or type a value and press Enter
@@ -295,6 +298,7 @@ service/
 
 ## Protocol notes
 
+- USB VID `0x232E` (EA Elektro-Automatik), native CDC-ACM driver (`/dev/ttyACM0` on Linux)
 - Interface: RS-232 / USB-CDC, **115200 baud, odd parity, 8 data bits, 1 stop bit**
 - Telegram format: `SD DN OBJ [DATA] CS(2)` — big-endian 16-bit checksum over all preceding bytes
 - Read query: 5 bytes (`SD DN OBJ CS CS`); device replies with 11 bytes

@@ -14,8 +14,8 @@ try:
 except ImportError:
     _SERIAL_AVAILABLE = False
 
-# EA / FTDI USB vendor ID — PS2000B uses FTDI chip
-EA_VID = 0x0403
+# EA Elektro-Automatik USB vendor ID (native CDC-ACM, not FTDI)
+EA_VID = 0x232E
 
 
 def list_serial_ports() -> list[str]:
