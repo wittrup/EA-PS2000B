@@ -250,6 +250,9 @@ class PS2000B:
         """Close the stale connection and reopen.
 
         Swallows errors during close (the old fd may already be dead).
+        If the original port is gone, falls back to auto-detection by
+        USB vendor ID so the service recovers when the device
+        re-enumerates to a different ttyACM node.
         Raises on open failure so the caller can decide when to retry.
         After a successful open the input buffer is flushed and a short
         stabilization delay allows the device to finish initializing.
@@ -260,7 +263,20 @@ class PS2000B:
             # Stale fd — force-clear so open() creates a fresh one
             self._ser = None
         time.sleep(0.3)
-        self.open()   # raises serial.SerialException if port is gone
+
+        try:
+            self.open()
+        except serial.SerialException:
+            # Port gone — try to find the device on a new port
+            from .ports import find_ps2000b
+            detected = find_ps2000b()
+            if detected and detected != self.port:
+                print(f"Port moved: {self.port} \u2192 {detected}", flush=True)
+                self.port = detected
+                self.open()   # raises if this also fails
+            else:
+                raise
+
         # Device may still be initializing after power-on — flush
         # any startup garbage and give it time to become ready.
         self._ser.reset_input_buffer()
