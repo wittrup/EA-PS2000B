@@ -118,4 +118,6 @@ Notes.txt
 EAPS2000B.identcache
 .idea/
 /.claude
-*/__pycache__
+__pycache__/
+
+

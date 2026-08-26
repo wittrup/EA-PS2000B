@@ -58,7 +58,10 @@ mcp = FastMCP(
     instructions=(
         "Controls an EA Elektro-Automatik PS2000B dual-channel lab power supply "
         f"via its REST API at {BASE_URL}. "
-        "Hardware limits: 0–42 V and 0–6 A per channel. "
+        "The PS2000B series spans multiple models with different voltage/current "
+        "ratings (e.g. 42 V/6 A vs 84 V/5 A) — always call get_device_info first "
+        "to learn this specific unit's nominal voltage and current before setting "
+        "values near the limit; the server also rejects out-of-range setpoints. "
         "Always call get_status before enabling a channel. "
         "Use safe_shutdown to cut power to both channels at once."
     ),
@@ -114,6 +117,19 @@ async def get_setpoints() -> dict:
 
 
 @mcp.tool()
+async def get_device_info() -> dict:
+    """Get the connected PS2000B model, and its nominal (maximum) voltage and
+    current per channel.
+
+    The PS2000B series covers many models with different ratings (e.g. 42 V/6 A
+    vs 84 V/5 A). Call this before setting a voltage or current close to the
+    limit, since set_channel/set_voltage/set_current are rejected if they
+    exceed this specific unit's nominal values.
+    """
+    return await _api("GET", "/api/device")
+
+
+@mcp.tool()
 async def list_ports() -> dict:
     """List all available serial ports on the machine running the PS2000B server.
 
@@ -134,8 +150,8 @@ async def set_channel(channel: int, voltage: float, current: float) -> dict:
 
     Args:
         channel: Channel number — 1 or 2.
-        voltage: Setpoint voltage in Volts (0.0 – 42.0 V).
-        current: Current limit in Amps (0.0 – 6.0 A).
+        voltage: Setpoint voltage in Volts — call get_device_info for this unit's max.
+        current: Current limit in Amps — call get_device_info for this unit's max.
     """
     if channel not in (1, 2):
         raise ValueError("channel must be 1 or 2")
@@ -149,7 +165,7 @@ async def set_voltage(channel: int, voltage: float) -> dict:
 
     Args:
         channel: Channel number — 1 or 2.
-        voltage: Setpoint voltage in Volts (0.0 – 42.0 V).
+        voltage: Setpoint voltage in Volts — call get_device_info for this unit's max.
     """
     if channel not in (1, 2):
         raise ValueError("channel must be 1 or 2")
@@ -163,7 +179,7 @@ async def set_current(channel: int, current: float) -> dict:
 
     Args:
         channel: Channel number — 1 or 2.
-        current: Current limit in Amps (0.0 – 6.0 A).
+        current: Current limit in Amps — call get_device_info for this unit's max.
     """
     if channel not in (1, 2):
         raise ValueError("channel must be 1 or 2")
@@ -269,8 +285,8 @@ async def configure_and_enable_channel(
 
     Args:
         channel: Channel number — 1 or 2.
-        voltage: Setpoint voltage in Volts (0.0 – 42.0 V).
-        current: Current limit in Amps (0.0 – 6.0 A).
+        voltage: Setpoint voltage in Volts — call get_device_info for this unit's max.
+        current: Current limit in Amps — call get_device_info for this unit's max.
     """
     if channel not in (1, 2):
         raise ValueError("channel must be 1 or 2")
@@ -315,14 +331,24 @@ async def resource_setpoints() -> str:
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
 @mcp.prompt()
-def ps2000b_safety_briefing() -> str:
+async def ps2000b_safety_briefing() -> str:
     """Establish safe working context at the start of a PS2000B session."""
+    try:
+        info = await _api("GET", "/api/device")
+        device_type = info.get("device_type") or "PS2000B"
+        limits = (
+            f"  Voltage: 0–{info['nominal_voltage']:g} V per channel\n"
+            f"  Current: 0–{info['nominal_current']:g} A per channel\n"
+        )
+    except Exception:
+        device_type = "PS2000B"
+        limits = "  (Could not read this unit's actual limits — call get_device_info first.)\n"
+
     return (
-        "You are controlling an EA Elektro-Automatik PS2000B dual-channel lab power supply.\n"
+        f"You are controlling an EA Elektro-Automatik {device_type} dual-channel lab power supply.\n"
         "\n"
         "Hardware limits (hard — never exceed):\n"
-        "  Voltage: 0–42 V per channel\n"
-        "  Current: 0–6 A per channel\n"
+        f"{limits}"
         "\n"
         "Workflow rules:\n"
         "1. Always call get_status before enabling a channel — verify the setpoints first.\n"

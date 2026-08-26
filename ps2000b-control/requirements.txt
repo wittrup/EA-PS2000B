@@ -2,5 +2,5 @@ fastapi
 uvicorn[standard]
 pyserial
 click
-mcp[cli]
+mcp[cli]<2
 httpx

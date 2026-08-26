@@ -238,12 +238,12 @@ document.querySelectorAll(".setpoint-num").forEach((numInput) => {
   const type     = numInput.dataset.type;
   const sliderId = numInput.id.replace("-out", "-set");
   const slider   = el(sliderId);
-  const max      = parseFloat(numInput.max);
   const decimals = type === "voltage" ? 1 : 2;
 
   function commitValue() {
     let value = parseFloat(numInput.value);
     if (isNaN(value)) return;
+    const max = parseFloat(numInput.max);                // read live — device limits load async
     value = Math.max(0, Math.min(max, value));          // clamp to range
     numInput.value  = value.toFixed(decimals);
     slider.value    = value;
@@ -336,6 +336,30 @@ logToggleBtn.addEventListener("click", async () => {
   logToggleBtn.disabled = false;
 });
 
+// ── Device limits (nominal voltage/current vary by PS2000B model) ─────────────
+function setDeviceLimits(nominalVoltage, nominalCurrent) {
+  [1, 2].forEach((ch) => {
+    ["v-set", "v-out"].forEach((id) => { el(`ch${ch}-${id}`).max = nominalVoltage; });
+    ["a-set", "a-out"].forEach((id) => { el(`ch${ch}-${id}`).max = nominalCurrent; });
+  });
+  [chart1, chart2].forEach((chart) => {
+    chart.options.scales.yV.max = nominalVoltage;
+    chart.options.scales.yA.max = nominalCurrent;
+    chart.update("none");
+  });
+}
+
+async function loadDeviceLimits() {
+  try {
+    const res = await fetch("/api/device");
+    if (!res.ok) return;
+    const d = await res.json();
+    setDeviceLimits(d.nominal_voltage, d.nominal_current);
+  } catch (e) {
+    console.warn("Could not load device limits:", e);
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function loadSetpoints() {
   try {
@@ -369,6 +393,7 @@ async function initLogStatus() {
   } catch (_) { /* no device yet */ }
 }
 
+loadDeviceLimits();
 loadSetpoints();
 initLogStatus();
 connect();

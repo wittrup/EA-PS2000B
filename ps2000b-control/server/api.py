@@ -16,14 +16,17 @@ router = APIRouter()
 # ── Models ──────────────────────────────────────────────────────────────────
 
 class SetpointRequest(BaseModel):
-    voltage: float = Field(..., ge=0.0, le=42.0, description="Setpoint voltage in Volts")
-    current: float = Field(..., ge=0.0, le=6.0,  description="Setpoint current in Amps")
+    # Upper bound is enforced against the connected device's actual nominal
+    # voltage/current (ps2000b.device.PS2000B.nominal_voltage/current) inside
+    # the route handler, since it varies by PS2000B model.
+    voltage: float = Field(..., ge=0.0, description="Setpoint voltage in Volts")
+    current: float = Field(..., ge=0.0, description="Setpoint current in Amps")
 
 class VoltageRequest(BaseModel):
-    voltage: float = Field(..., ge=0.0, le=42.0)
+    voltage: float = Field(..., ge=0.0)
 
 class CurrentRequest(BaseModel):
-    current: float = Field(..., ge=0.0, le=6.0)
+    current: float = Field(..., ge=0.0)
 
 
 class EnableRequest(BaseModel):
@@ -41,6 +44,19 @@ async def get_ports():
     """List all available serial ports."""
     ports = list_serial_ports()
     return {"ports": [port_info(p) for p in ports]}
+
+
+@router.get("/device")
+async def get_device_info():
+    """Return the connected device's model and nominal (max) voltage/current."""
+    device = get_device()
+    if device is None:
+        raise HTTPException(503, detail="No device connected")
+    return {
+        "device_type":     device.device_type,
+        "nominal_voltage": device.nominal_voltage,
+        "nominal_current": device.nominal_current,
+    }
 
 
 @router.get("/setpoints")
@@ -80,6 +96,8 @@ async def set_channel(channel: int, body: SetpointRequest):
         device.set_output(channel - 1, body.voltage, body.current)
         result = device.get_status(channel - 1)
         return {"ok": True, "channel": result.as_dict()}
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
     except PS2000BError as e:
         raise HTTPException(502, detail=str(e))
 
@@ -96,6 +114,8 @@ async def set_voltage(channel: int, body: VoltageRequest):
         device.set_voltage(channel - 1, body.voltage)
         result = device.get_status(channel - 1)
         return {"ok": True, "channel": result.as_dict()}
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
     except PS2000BError as e:
         raise HTTPException(502, detail=str(e))
 
@@ -112,6 +132,8 @@ async def set_current(channel: int, body: CurrentRequest):
         device.set_current(channel - 1, body.current)
         result = device.get_status(channel - 1)
         return {"ok": True, "channel": result.as_dict()}
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
     except PS2000BError as e:
         raise HTTPException(502, detail=str(e))
 

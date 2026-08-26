@@ -21,7 +21,10 @@ Source: EA PS2000B object_list_ps2000b_de_en.pdf (USB stick /Programming/)
 
 import struct
 
-# Device limits (PS2042-06B: 42 V / 6 A — read from OBJ 2 and 3 if needed)
+# Fallback device limits, only used if the nominal voltage/current can't be
+# read from the device (OBJ 2 / OBJ 3). PS2000B.open() queries the real
+# values at connect time since every model in the series has different
+# ratings (e.g. PS2042-06B = 42 V/6 A, PS2384-05B = 84 V/5 A).
 MAX_VOLTAGE = 42.0   # Volts  (OBJ 2: Nominal voltage)
 MAX_CURRENT = 6.0    # Amps   (OBJ 3: Nominal current)
 SCALE = 25600        # Full-scale raw value (100% × 256)
@@ -33,11 +36,23 @@ STOPBITS    = 1
 BYTESIZE    = 8
 
 # Object IDs (from object_list_ps2000b_de_en.pdf)
+OBJ_DEVICE_TYPE     = 0x00  # 0   — Device type string           (read, 16-byte string)
+OBJ_NOMINAL_VOLTAGE = 0x02  # 2   — Nominal voltage Unom          (read, 4-byte float)
+OBJ_NOMINAL_CURRENT = 0x03  # 3   — Nominal current Inom          (read, 4-byte float)
 OBJ_STATUS         = 0x47   # 71  — Status + actual values      (read, 6 data bytes)
 OBJ_SETPOINTS      = 0x48   # 72  — Status + current setpoints  (read, 6 data bytes)
 OBJ_SET_VOLTAGE    = 0x32   # 50  — Set voltage setpoint        (write, 2 data bytes)
 OBJ_SET_CURRENT    = 0x33   # 51  — Set current setpoint        (write, 2 data bytes)
 OBJ_CONTROL        = 0x36   # 54  — Power supply control        (write, 2 data bytes)
+
+# Read response lengths: header(3) + data + checksum(2)
+# String objects (OBJ 0, 1, ...) are NOT padded to their declared max length —
+# the device sends only the string content up to and including its NUL
+# terminator, so the total response length varies. 21 is the upper bound
+# (16-byte max data field); read up to this many bytes with a short
+# per-call timeout and parse whatever actually arrived (checksum-verified).
+DEVICE_TYPE_MAX_RESPONSE_LEN = 3 + 16 + 2   # 21 bytes
+NOMINAL_RESPONSE_LEN         = 3 + 4 + 2    # 9 bytes — fixed-size float field
 
 # Control codes for OBJ_CONTROL: [mask, value]  (see section 3.3 in programming guide)
 # Confirmed from example in section 3.4.1: F1 00 36 10 10 01 47 = remote ON
@@ -107,9 +122,49 @@ def build_setpoint_query(channel: int) -> bytes:
     return _build_query(channel, OBJ_SETPOINTS)
 
 
-def parse_response(data: bytes) -> dict:
+def build_device_type_query() -> bytes:
+    """Build a query for the device type string (OBJ 0), e.g. 'PS 2384-05 B'."""
+    return _build_query(0, OBJ_DEVICE_TYPE)
+
+
+def build_nominal_voltage_query() -> bytes:
+    """Build a query for the device's nominal voltage Unom (OBJ 2)."""
+    return _build_query(0, OBJ_NOMINAL_VOLTAGE)
+
+
+def build_nominal_current_query() -> bytes:
+    """Build a query for the device's nominal current Inom (OBJ 3)."""
+    return _build_query(0, OBJ_NOMINAL_CURRENT)
+
+
+def parse_device_type_response(data: bytes) -> str:
+    """Parse a device-type string response (OBJ 0): header(3) + NUL-terminated
+    string (variable length, not padded) + checksum(2)."""
+    if len(data) < 6:   # header(3) + at least NUL(1) + checksum(2)
+        raise ValueError(f"Short device type response: got {len(data)} bytes")
+    if not verify_checksum(data):
+        raise ValueError("Checksum mismatch in device type response")
+    raw = data[3:-2]
+    return raw.split(b"\x00", 1)[0].decode("ascii", errors="replace")
+
+
+def parse_nominal_response(data: bytes) -> float:
+    """Parse a nominal voltage/current response (OBJ 2/3): header(3) + 4-byte big-endian float + checksum(2)."""
+    if len(data) != NOMINAL_RESPONSE_LEN:
+        raise ValueError(f"Expected {NOMINAL_RESPONSE_LEN} bytes, got {len(data)}")
+    if not verify_checksum(data):
+        raise ValueError("Checksum mismatch in nominal value response")
+    return struct.unpack(">f", data[3:7])[0]
+
+
+def parse_response(data: bytes, nominal_voltage: float = MAX_VOLTAGE,
+                    nominal_current: float = MAX_CURRENT) -> dict:
     """
     Parse an 11-byte status response (OBJ 71).
+
+    Args:
+      nominal_voltage: device's Unom (OBJ 2), used to scale the raw value.
+      nominal_current: device's Inom (OBJ 3), used to scale the raw value.
 
     Returns:
       channel   int    0 or 1
@@ -130,8 +185,8 @@ def parse_response(data: bytes) -> dict:
     if obj not in (OBJ_STATUS, OBJ_SETPOINTS):
         raise ValueError(f"Unexpected OBJ 0x{obj:02X}")
 
-    voltage = MAX_VOLTAGE * av / SCALE
-    current = MAX_CURRENT * ac / SCALE
+    voltage = nominal_voltage * av / SCALE
+    current = nominal_current * ac / SCALE
 
     return {
         "channel":   dn,
@@ -163,21 +218,21 @@ def build_control_command(channel: int, code: bytes) -> bytes:
     return _build_send(channel, OBJ_CONTROL, code)
 
 
-def build_set_voltage(channel: int, voltage: float) -> bytes:
+def build_set_voltage(channel: int, voltage: float, nominal_voltage: float = MAX_VOLTAGE) -> bytes:
     """Build a telegram to set the voltage setpoint (OBJ 50)."""
     if channel not in (0, 1):
         raise ValueError(f"Channel must be 0 or 1, got {channel}")
-    if not (0.0 <= voltage <= MAX_VOLTAGE):
-        raise ValueError(f"Voltage {voltage} out of range [0, {MAX_VOLTAGE}]")
-    raw = round(voltage / MAX_VOLTAGE * SCALE)
+    if not (0.0 <= voltage <= nominal_voltage):
+        raise ValueError(f"Voltage {voltage} out of range [0, {nominal_voltage}]")
+    raw = round(voltage / nominal_voltage * SCALE)
     return _build_send(channel, OBJ_SET_VOLTAGE, struct.pack(">H", raw))
 
 
-def build_set_current(channel: int, current: float) -> bytes:
+def build_set_current(channel: int, current: float, nominal_current: float = MAX_CURRENT) -> bytes:
     """Build a telegram to set the current setpoint (OBJ 51)."""
     if channel not in (0, 1):
         raise ValueError(f"Channel must be 0 or 1, got {channel}")
-    if not (0.0 <= current <= MAX_CURRENT):
-        raise ValueError(f"Current {current} out of range [0, {MAX_CURRENT}]")
-    raw = round(current / MAX_CURRENT * SCALE)
+    if not (0.0 <= current <= nominal_current):
+        raise ValueError(f"Current {current} out of range [0, {nominal_current}]")
+    raw = round(current / nominal_current * SCALE)
     return _build_send(channel, OBJ_SET_CURRENT, struct.pack(">H", raw))

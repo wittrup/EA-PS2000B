@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=wittr
-Group=wittr
-WorkingDirectory=/home/wittr/ps2000b-control
-ExecStart=/home/wittr/ps2000b-control/.venv/bin/python3 cli.py serve --host 0.0.0.0 --http-port 8181
+User=dev
+Group=dev
+WorkingDirectory=/home/dev/EA-PS2000B/ps2000b-control
+ExecStart=/home/dev/EA-PS2000B/ps2000b-control/.venv/bin/python3 cli.py serve --host 0.0.0.0 --http-port 8181
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

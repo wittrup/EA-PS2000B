@@ -65,6 +65,12 @@ class PS2000B:
         self._ser: Optional[serial.Serial] = None
         self._lock   = threading.Lock()   # serializes all serial I/O
 
+        # Populated by open()/reconnect() from the device itself (OBJ 0/2/3),
+        # since every PS2000B model has different ratings.
+        self.device_type     = ""
+        self.nominal_voltage = proto.MAX_VOLTAGE
+        self.nominal_current = proto.MAX_CURRENT
+
     # ------------------------------------------------------------------
     # Connection management
     # ------------------------------------------------------------------
@@ -83,7 +89,56 @@ class PS2000B:
             rtscts   = False,
             dsrdtr   = False,
         )
+        self._read_nominal_ratings()
         return self
+
+    def _read_nominal_ratings(self) -> None:
+        """Query the device's actual model, nominal voltage and nominal current
+        (OBJ 0/2/3) so scaling matches this specific PS2000B model instead of
+        an assumed 42 V/6 A. Each query is independent — a failure on one
+        (e.g. the device type string) doesn't block the others, and any
+        field that can't be read keeps its module-default fallback."""
+        with self._lock:
+            # OBJ 0's string response is NOT padded to its declared max
+            # length — the device sends only the content up to its NUL
+            # terminator, so the response is shorter than DEVICE_TYPE_MAX_
+            # RESPONSE_LEN and a read() sized for the max would block for
+            # the full port timeout waiting for bytes that never arrive.
+            # Use a short temporary timeout instead.
+            try:
+                self._ser.reset_input_buffer()
+                self._ser.write(proto.build_device_type_query())
+                original_timeout = self._ser.timeout
+                self._ser.timeout = 0.3
+                try:
+                    raw = self._ser.read(proto.DEVICE_TYPE_MAX_RESPONSE_LEN)
+                finally:
+                    self._ser.timeout = original_timeout
+                self.device_type = proto.parse_device_type_response(raw)
+            except (serial.SerialException, ValueError):
+                pass
+
+            # Small gaps avoid a race where back-to-back queries confuse
+            # the device's simple UART framing and it drops a response.
+            time.sleep(0.1)
+            try:
+                self._ser.reset_input_buffer()
+                self._ser.write(proto.build_nominal_voltage_query())
+                raw = self._ser.read(proto.NOMINAL_RESPONSE_LEN)
+                if len(raw) == proto.NOMINAL_RESPONSE_LEN:
+                    self.nominal_voltage = proto.parse_nominal_response(raw)
+            except (serial.SerialException, ValueError):
+                pass
+
+            time.sleep(0.1)
+            try:
+                self._ser.reset_input_buffer()
+                self._ser.write(proto.build_nominal_current_query())
+                raw = self._ser.read(proto.NOMINAL_RESPONSE_LEN)
+                if len(raw) == proto.NOMINAL_RESPONSE_LEN:
+                    self.nominal_current = proto.parse_nominal_response(raw)
+            except (serial.SerialException, ValueError):
+                pass
 
     def close(self) -> None:
         if self._ser and self._ser.is_open:
@@ -134,7 +189,7 @@ class PS2000B:
                 f"Short read on channel {channel}: expected {self.RESPONSE_LEN} bytes, got {len(raw)}"
             )
 
-        parsed = proto.parse_response(raw)
+        parsed = proto.parse_response(raw, self.nominal_voltage, self.nominal_current)
         return ChannelStatus(
             channel   = parsed["channel"],
             voltage   = parsed["voltage"],
@@ -156,7 +211,7 @@ class PS2000B:
             raw = self._ser.read(self.RESPONSE_LEN)
         if len(raw) != self.RESPONSE_LEN:
             raise PS2000BError(f"Short read on setpoint query ch{channel}")
-        parsed = proto.parse_response(raw)
+        parsed = proto.parse_response(raw, self.nominal_voltage, self.nominal_current)
         return {"channel": channel, "voltage": parsed["voltage"], "current": parsed["current"]}
 
     def get_all_setpoints(self) -> list[dict]:
@@ -188,7 +243,7 @@ class PS2000B:
         with self._lock:
             self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
             try:
-                self._send(proto.build_set_voltage(channel, voltage))
+                self._send(proto.build_set_voltage(channel, voltage, self.nominal_voltage))
             finally:
                 self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_OFF))
 
@@ -202,7 +257,7 @@ class PS2000B:
         with self._lock:
             self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
             try:
-                self._send(proto.build_set_current(channel, current))
+                self._send(proto.build_set_current(channel, current, self.nominal_current))
             finally:
                 self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_OFF))
 
@@ -216,8 +271,8 @@ class PS2000B:
         with self._lock:
             self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_ON))
             try:
-                self._send(proto.build_set_voltage(channel, voltage))
-                self._send(proto.build_set_current(channel, current))
+                self._send(proto.build_set_voltage(channel, voltage, self.nominal_voltage))
+                self._send(proto.build_set_current(channel, current, self.nominal_current))
             finally:
                 self._send(proto.build_control_command(channel, proto.CTRL_REMOTE_OFF))
 
